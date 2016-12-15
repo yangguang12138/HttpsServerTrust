@@ -79,6 +79,7 @@
         if (allowConnect)
         {
             NSLog(@"success");
+            //发送凭证给服务器
             [[challenge sender]useCredential:[NSURLCredential credentialForTrust:serverTrust] forAuthenticationChallenge:challenge];
         }else
         {
@@ -86,6 +87,44 @@
         }
     }
 }
+
+////willSendRequestForAuthenticationChallenge调用后无法调用didReceiveAuthenticationChallenge，canAuthenticateAgainstProtectionSpace
+//- (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+//{
+//    if (![challenge.protectionSpace.host isEqualToString:@"kyfw.12306.cn"] || ![challenge.protectionSpace.protocol isEqualToString:NSURLProtectionSpaceHTTPS])
+//    {
+//        NSLog(@"we unable to establish a secure connection.Please check your network conection and try again");
+//        [challenge.sender cancelAuthenticationChallenge:challenge];
+//    }else
+//    {
+//        SecTrustRef serverTrust = [[challenge protectionSpace]serverTrust];
+//        NSString *cerPath = [[NSBundle mainBundle]pathForResource:@"srca" ofType:@"cer"];
+//        NSData *caCert = [NSData dataWithContentsOfFile:cerPath];
+//        if (nil == caCert)
+//        {
+//            return;
+//        }
+//        SecCertificateRef caRef = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)caCert);
+//        if (nil == caRef)
+//        {
+//            return;
+//        }
+//        NSArray *caArray = @[(__bridge id)caRef];
+//        OSStatus status = SecTrustSetAnchorCertificates(serverTrust, (__bridge CFArrayRef)caArray);
+//        if(!(errSecSuccess == status))
+//        {
+//            return;
+//        }
+//        SecTrustResultType result = -1;
+//        status = SecTrustEvaluate(serverTrust, &result);
+//        if (!(errSecSuccess == status))
+//        {
+//            return;
+//        }
+//        [challenge.sender useCredential:[NSURLCredential credentialForTrust:serverTrust] forAuthenticationChallenge:challenge];
+//    }
+//    
+//}
 
 - (void)connection:(NSURLConnection *)connection didCancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
