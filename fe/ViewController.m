@@ -8,8 +8,11 @@
 
 #import "ViewController.h"
 
-@interface ViewController ()<NSURLConnectionDelegate,NSURLConnectionDataDelegate>
+@interface ViewController ()<NSURLConnectionDelegate,NSURLConnectionDataDelegate,UIWebViewDelegate>
 @property (nonatomic,retain)NSMutableData *userData;
+@property (nonatomic,retain)UIWebView *webView;
+@property (nonatomic,retain)NSURLRequest *originRequest;
+@property (nonatomic,assign)BOOL isAuto;
 
 @end
 
@@ -18,9 +21,53 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    _isAuto = NO;
     
-    [self getDataWithuURLRequest];
+//    [self getDataWithuURLRequest];
     
+    [self getWithWebView];
+    
+}
+
+- (void)getWithWebView
+{
+    _webView = [[UIWebView alloc]initWithFrame:self.view.frame];
+    NSURL *url = [NSURL URLWithString:@"https://kyfw.12306.cn/otn/"];
+    _originRequest = [NSURLRequest requestWithURL:url];
+    [_webView loadRequest:_originRequest];
+    _webView.delegate = self;
+    [self.view addSubview:_webView];
+}
+
+#pragma mark UIWebViewDelegate
+- (BOOL)webView:(UIWebView *)webView shouldStartLoadWithRequest:(NSURLRequest *)request navigationType:(UIWebViewNavigationType)navigationType
+{
+    NSString *scheme = [[request URL]scheme];
+    NSLog(@"scheme:%@",scheme);
+    if ([scheme isEqualToString:@"https"] && !_isAuto)
+    {
+        _originRequest = request;
+        NSURLConnection *conn = [[NSURLConnection alloc]initWithRequest:_originRequest delegate:self];
+        [conn start];
+        [_webView stopLoading];
+        return NO;
+    }
+    return YES;
+}
+
+- (void)webViewDidStartLoad:(UIWebView *)webView
+{
+    NSLog(@"webViewDidStartLoad");
+}
+
+- (void)webViewDidFinishLoad:(UIWebView *)webView
+{
+    NSLog(@"webViewDidFinishLoad");
+}
+
+- (void)webView:(UIWebView *)webView didFailLoadWithError:(NSError *)error
+{
+    NSLog(@"didFailLoadWithError");
 }
 
 - (void)getDataWithuURLRequest{
@@ -88,43 +135,64 @@
     }
 }
 
-////willSendRequestForAuthenticationChallenge调用后无法调用didReceiveAuthenticationChallenge，canAuthenticateAgainstProtectionSpace
-//- (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
-//{
-//    if (![challenge.protectionSpace.host isEqualToString:@"kyfw.12306.cn"] || ![challenge.protectionSpace.protocol isEqualToString:NSURLProtectionSpaceHTTPS])
-//    {
-//        NSLog(@"we unable to establish a secure connection.Please check your network conection and try again");
-//        [challenge.sender cancelAuthenticationChallenge:challenge];
-//    }else
-//    {
-//        SecTrustRef serverTrust = [[challenge protectionSpace]serverTrust];
-//        NSString *cerPath = [[NSBundle mainBundle]pathForResource:@"srca" ofType:@"cer"];
-//        NSData *caCert = [NSData dataWithContentsOfFile:cerPath];
-//        if (nil == caCert)
-//        {
-//            return;
-//        }
-//        SecCertificateRef caRef = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)caCert);
-//        if (nil == caRef)
-//        {
-//            return;
-//        }
-//        NSArray *caArray = @[(__bridge id)caRef];
-//        OSStatus status = SecTrustSetAnchorCertificates(serverTrust, (__bridge CFArrayRef)caArray);
-//        if(!(errSecSuccess == status))
-//        {
-//            return;
-//        }
-//        SecTrustResultType result = -1;
-//        status = SecTrustEvaluate(serverTrust, &result);
-//        if (!(errSecSuccess == status))
-//        {
-//            return;
-//        }
-//        [challenge.sender useCredential:[NSURLCredential credentialForTrust:serverTrust] forAuthenticationChallenge:challenge];
-//    }
-//    
-//}
+//willSendRequestForAuthenticationChallenge调用后无法调用didReceiveAuthenticationChallenge，canAuthenticateAgainstProtectionSpace
+- (void)connection:(NSURLConnection *)connection willSendRequestForAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+{
+    if (![challenge.protectionSpace.host isEqualToString:@"kyfw.12306.cn"] || ![challenge.protectionSpace.protocol isEqualToString:NSURLProtectionSpaceHTTPS])
+    {
+        NSLog(@"we unable to establish a secure connection.Please check your network conection and try again");
+        [challenge.sender cancelAuthenticationChallenge:challenge];
+    }else
+    {
+        //1.获取trust object
+        SecTrustRef serverTrust = [[challenge protectionSpace]serverTrust];
+        //2.导入信任证书
+        NSString *cerPath = [[NSBundle mainBundle]pathForResource:@"srca" ofType:@"cer"];
+        NSData *caCert = [NSData dataWithContentsOfFile:cerPath];
+        if (nil == caCert)
+        {
+            return;
+        }
+        
+        SecCertificateRef caRef = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)caCert);
+        if (nil == caRef)
+        {
+            return;
+        }
+        NSArray *caArray = @[(__bridge id)caRef];
+        //3.将之前导入的证书设置成下面验证的Trust object的anchor certificate(根证书)
+        OSStatus status = SecTrustSetAnchorCertificates(serverTrust, (__bridge CFArrayRef)caArray);
+        if(!(errSecSuccess == status))
+        {
+            return;
+        }
+        SecTrustResultType result = -1;
+        /**
+         4.SecTrustEvaluate会查找前面SecTrustSetAnchorCertificates设置的证书
+         或者系统默认提供的证书，对serverTrust进行验证
+         */
+        status = SecTrustEvaluate(serverTrust, &result);
+        if (errSecSuccess == status && (result == kSecTrustResultProceed || result == kSecTrustResultUnspecified))
+        {
+            //5.验证成功，生成NSURLCredential凭证cred,告知challenge的sender使用这个凭证来继续连接
+            [challenge.sender useCredential:[NSURLCredential credentialForTrust:serverTrust] forAuthenticationChallenge:challenge];
+        }else
+        {
+            //6.验证失败，取消这次验证流程
+            [challenge.sender cancelAuthenticationChallenge:challenge];
+            return;
+        }
+
+        
+//        //要服务器端单项HTTPS验证，iOS客户端忽略证书验证。
+//        SecTrustRef trust = [[challenge protectionSpace] serverTrust];
+//        
+//        NSURLCredential *credential = [[NSURLCredential alloc] initWithTrust:trust];
+//        
+//        [[challenge sender] useCredential:credential forAuthenticationChallenge:challenge];
+    }
+    
+}
 
 - (void)connection:(NSURLConnection *)connection didCancelAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
@@ -141,6 +209,10 @@
 {
     NSLog(@"didReciveResponse");
     _userData = [[NSMutableData alloc]init];
+    //webView
+    [_webView loadRequest:_originRequest];
+    [connection cancel];
+    _isAuto = YES;
 }
 
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
